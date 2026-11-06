@@ -1,0 +1,38 @@
+﻿# Python environment
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local databases and investigation data
+storage/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+
+# Frontend dependencies and builds
+frontend/node_modules/
+frontend/dist/
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local test images
+face_annotated.jpg
+face_annotated_mesh.jpg
+face_test.png

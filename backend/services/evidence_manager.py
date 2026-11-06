@@ -9,15 +9,12 @@ from pathlib import Path
 from backend.core.security import encrypt_bytes, decrypt_bytes
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-EVIDENCE_ROOT = PROJECT_ROOT / "storage" / "evidence"
-ORIGINALS_DIR = EVIDENCE_ROOT / "originals"
-MANIFESTS_DIR = EVIDENCE_ROOT / "manifests"
-AUDIT_DIR = EVIDENCE_ROOT / "audit"
-
-for directory in [ORIGINALS_DIR, MANIFESTS_DIR, AUDIT_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+from backend.core.storage import (
+    EVIDENCE_ROOT,
+    ORIGINALS_DIR,
+    MANIFESTS_DIR,
+    AUDIT_DIR,
+)
 
 
 def calculate_sha256(data: bytes) -> str:

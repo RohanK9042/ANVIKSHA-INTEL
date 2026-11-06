@@ -8,11 +8,10 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATABASE_DIR = PROJECT_ROOT / "storage" / "cases"
-DATABASE_PATH = DATABASE_DIR / "aegis_cases.db"
+from backend.core.storage import CASES_DIR
 
-DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_DIR = CASES_DIR
+DATABASE_PATH = DATABASE_DIR / "aegis_cases.db"
 
 
 def get_connection():

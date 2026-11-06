@@ -190,11 +190,9 @@ async def get_evidence_manifest(evidence_id: str):
     from pathlib import Path
     import json
 
-    manifest_path = (
-        Path(__file__).resolve().parents[1]
-        / "storage" / "evidence" / "manifests"
-        / f"{evidence_id}.json"
-    )
+    from backend.core.storage import MANIFESTS_DIR
+
+    manifest_path = MANIFESTS_DIR / f"{evidence_id}.json"
 
     if not manifest_path.is_file():
         raise HTTPException(status_code=404, detail="Evidence not found.")

@@ -19,12 +19,10 @@ from backend.services.image_forensics import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from backend.core.storage import IMAGE_INDEX_DIR
 
-INDEX_DIR = PROJECT_ROOT / "storage" / "image_index"
+INDEX_DIR = IMAGE_INDEX_DIR
 DATABASE_PATH = INDEX_DIR / "images.db"
-
-INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_connection():

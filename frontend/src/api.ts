@@ -1,5 +1,53 @@
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+
+const TOKEN_STORAGE_KEY = "aegis_demo_token";
+
+// ==========================================
+// DEMO AUTHENTICATION
+// ==========================================
+
+export function setDemoToken(token: string): void {
+  sessionStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
+}
+
+export function clearDemoToken(): void {
+  sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+export function hasDemoToken(): boolean {
+  return Boolean(sessionStorage.getItem(TOKEN_STORAGE_KEY));
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+
+  if (!token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+async function authenticatedFetch(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  return fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+}
+
+// ==========================================
+// INTERFACES
+// ==========================================
 
 export interface InvestigationCase {
   internal_id: string;
@@ -24,8 +72,12 @@ export interface EvidenceRecord {
   linked_at: string;
 }
 
+// ==========================================
+// GENERAL API REQUEST
+// ==========================================
+
 async function apiRequest<T>(endpoint: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`);
+  const response = await authenticatedFetch(endpoint);
 
   if (!response.ok) {
     throw new Error(`API request failed: ${response.status}`);
@@ -61,12 +113,16 @@ export function getCaseActivity(caseId: string) {
   }>(`/api/v1/cases/${encodeURIComponent(caseId)}/activity`);
 }
 
+// ==========================================
+// CASE MANAGEMENT
+// ==========================================
+
 export async function createCase(data: {
   title: string;
   description: string;
   priority: string;
 }) {
-  const response = await fetch(`${API_BASE_URL}/api/v1/cases`, {
+  const response = await authenticatedFetch("/api/v1/cases", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -81,6 +137,10 @@ export async function createCase(data: {
 
   return response.json();
 }
+
+// ==========================================
+// IMAGE FORENSICS
+// ==========================================
 
 export interface ImageAnalysisResult {
   status: string;
@@ -97,12 +157,14 @@ export interface EvidenceIngestResult {
   };
 }
 
-export async function analyseImage(file: File): Promise<ImageAnalysisResult> {
+export async function analyseImage(
+  file: File
+): Promise<ImageAnalysisResult> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/image/analyse`,
+  const response = await authenticatedFetch(
+    "/api/v1/image/analyse",
     {
       method: "POST",
       body: formData,
@@ -122,8 +184,8 @@ export async function ingestEvidence(
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/evidence/ingest`,
+  const response = await authenticatedFetch(
+    "/api/v1/evidence/ingest",
     {
       method: "POST",
       body: formData,
@@ -136,15 +198,16 @@ export async function ingestEvidence(
 
   return response.json();
 }
+
 export async function linkEvidenceToCase(
   caseId: string,
   evidenceId: string
 ) {
   const endpoint =
-    `${API_BASE_URL}/api/v1/cases/${encodeURIComponent(caseId)}/evidence` +
+    `/api/v1/cases/${encodeURIComponent(caseId)}/evidence` +
     `?evidence_id=${encodeURIComponent(evidenceId)}`;
 
-  const response = await fetch(endpoint, {
+  const response = await authenticatedFetch(endpoint, {
     method: "POST",
   });
 
@@ -159,7 +222,7 @@ export async function linkEvidenceToCase(
 }
 
 // ==========================================
-// EXTERNAL INTELLIGENCE - WIKIMEDIA SEARCH
+// EXTERNAL INTELLIGENCE - WIKIMEDIA
 // ==========================================
 
 export interface WikipediaArticleResult {
@@ -194,7 +257,7 @@ async function wikimediaRequest<T>(
   query: string,
   limit: number
 ): Promise<WikimediaSearchResponse<T>> {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await authenticatedFetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -212,7 +275,7 @@ async function wikimediaRequest<T>(
       const error = await response.json();
       message = error.detail || message;
     } catch {
-      // Keep the default error message.
+      // Keep default message.
     }
 
     throw new Error(message);
@@ -221,10 +284,7 @@ async function wikimediaRequest<T>(
   return response.json();
 }
 
-export function searchWikipedia(
-  query: string,
-  limit = 10
-) {
+export function searchWikipedia(query: string, limit = 10) {
   return wikimediaRequest<WikipediaArticleResult>(
     "/api/v1/osint/wikimedia/articles",
     query,
@@ -242,6 +302,10 @@ export function searchWikimediaImages(
     limit
   );
 }
+
+// ==========================================
+// IMAGE INDEXING
+// ==========================================
 
 export interface ImageIndexResult {
   status: string;
@@ -273,8 +337,8 @@ export interface ImageSimilarityResponse {
 export async function indexEvidenceImage(
   evidenceId: string
 ): Promise<ImageIndexResult> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/image-index/index/${encodeURIComponent(evidenceId)}`,
+  const response = await authenticatedFetch(
+    `/api/v1/image-index/index/${encodeURIComponent(evidenceId)}`,
     { method: "POST" }
   );
 
@@ -290,8 +354,8 @@ export async function searchSimilarEvidenceImages(
   evidenceId: string,
   limit = 10
 ): Promise<ImageSimilarityResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/image-index/search/${encodeURIComponent(evidenceId)}?limit=${limit}`
+  const response = await authenticatedFetch(
+    `/api/v1/image-index/search/${encodeURIComponent(evidenceId)}?limit=${limit}`
   );
 
   if (!response.ok) {
@@ -303,7 +367,7 @@ export async function searchSimilarEvidenceImages(
 }
 
 // ==========================================
-// AEGIS INTEL - SOCIAL PROFILE SEARCH
+// SOCIAL PROFILE SEARCH
 // ==========================================
 
 export interface SocialProfileResult {
@@ -332,7 +396,7 @@ async function socialSearchRequest(
   query: string,
   limit = 10
 ): Promise<SocialSearchResponse> {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await authenticatedFetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -350,7 +414,7 @@ async function socialSearchRequest(
       const error = await response.json();
       message = error.detail || message;
     } catch {
-      // Keep the default error message.
+      // Keep default message.
     }
 
     throw new Error(message);
@@ -381,9 +445,9 @@ export function searchMastodonProfiles(
   );
 }
 
- // ==========================================
- // EVIDENCE VAULT - MANIFEST & INTEGRITY
- // ==========================================
+// ==========================================
+// EVIDENCE VAULT
+// ==========================================
 
 export interface EvidenceManifest {
   evidence_id: string;
@@ -404,8 +468,7 @@ export interface EvidenceVerificationResult {
   calculated_sha256: string;
 }
 
-// Retrieve evidence manifest
-export async function getEvidenceManifest(
+export function getEvidenceManifest(
   evidenceId: string
 ): Promise<EvidenceManifest> {
   return apiRequest<EvidenceManifest>(
@@ -413,8 +476,7 @@ export async function getEvidenceManifest(
   );
 }
 
-// Verify evidence integrity
-export async function verifyEvidence(
+export function verifyEvidence(
   evidenceId: string
 ): Promise<EvidenceVerificationResult> {
   return apiRequest<EvidenceVerificationResult>(
@@ -431,12 +493,12 @@ export interface AllEvidenceResponse {
   evidence: EvidenceManifest[];
 }
 
-export async function getAllStoredEvidence(): Promise<AllEvidenceResponse> {
+export function getAllStoredEvidence(): Promise<AllEvidenceResponse> {
   return apiRequest<AllEvidenceResponse>("/api/v1/evidence");
 }
 
 // ==========================================
-// FACE INTELLIGENCE LABORATORY
+// FACE INTELLIGENCE
 // ==========================================
 
 export interface FaceIntelligenceResponse {
@@ -451,8 +513,8 @@ export async function analyseFaces(
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/face-intelligence/analyse`,
+  const response = await authenticatedFetch(
+    "/api/v1/face-intelligence/analyse",
     {
       method: "POST",
       body: formData,
@@ -466,7 +528,7 @@ export async function analyseFaces(
       const error = await response.json();
       message = error.detail || message;
     } catch {
-      // Keep the default error message.
+      // Keep default message.
     }
 
     throw new Error(message);
@@ -476,7 +538,7 @@ export async function analyseFaces(
 }
 
 // ==========================================
-// FACE INTELLIGENCE - PERSISTENT REPORTS
+// FACIAL ANALYSIS REPORTS
 // ==========================================
 
 export interface FaceAnalysisReport {
@@ -511,14 +573,13 @@ export interface FaceAnalysisReportsResponse {
   reports: FaceAnalysisReportSummary[];
 }
 
-// Save a facial-analysis report against a case and evidence
 export async function saveFaceAnalysisReport(
   caseId: string,
   evidenceId: string,
   analysis: Record<string, unknown>
 ): Promise<SaveFaceAnalysisReportResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/cases/${encodeURIComponent(caseId)}/face-reports`,
+  const response = await authenticatedFetch(
+    `/api/v1/cases/${encodeURIComponent(caseId)}/face-reports`,
     {
       method: "POST",
       headers: {
@@ -532,13 +593,14 @@ export async function saveFaceAnalysisReport(
   );
 
   if (!response.ok) {
-    let message = `Unable to save facial-analysis report: ${response.status}`;
+    let message =
+      `Unable to save facial-analysis report: ${response.status}`;
 
     try {
       const error = await response.json();
       message = error.detail || message;
     } catch {
-      // Keep the default error message.
+      // Keep default message.
     }
 
     throw new Error(message);
@@ -547,22 +609,22 @@ export async function saveFaceAnalysisReport(
   return response.json();
 }
 
-// Retrieve all facial-analysis reports for a case
 export async function getFaceAnalysisReports(
   caseId: string
 ): Promise<FaceAnalysisReportsResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/cases/${encodeURIComponent(caseId)}/face-reports`
+  const response = await authenticatedFetch(
+    `/api/v1/cases/${encodeURIComponent(caseId)}/face-reports`
   );
 
   if (!response.ok) {
-    let message = `Unable to retrieve facial-analysis reports: ${response.status}`;
+    let message =
+      `Unable to retrieve facial-analysis reports: ${response.status}`;
 
     try {
       const error = await response.json();
       message = error.detail || message;
     } catch {
-      // Keep the default error message.
+      // Keep default message.
     }
 
     throw new Error(message);
@@ -571,26 +633,40 @@ export async function getFaceAnalysisReports(
   return response.json();
 }
 
-// Retrieve one complete facial-analysis report
 export async function getFaceAnalysisReport(
   reportId: string
 ): Promise<FaceAnalysisReport> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/v1/face-reports/${encodeURIComponent(reportId)}`
+  const response = await authenticatedFetch(
+    `/api/v1/face-reports/${encodeURIComponent(reportId)}`
   );
 
   if (!response.ok) {
-    let message = `Unable to retrieve facial-analysis report: ${response.status}`;
+    let message =
+      `Unable to retrieve facial-analysis report: ${response.status}`;
 
     try {
       const error = await response.json();
       message = error.detail || message;
     } catch {
-      // Keep the default error message.
+      // Keep default message.
     }
 
     throw new Error(message);
   }
 
   return response.json();
+}
+
+export async function verifyDemoToken(token: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/system/info`, {
+      headers: {
+        Authorization: `Bearer ${token.trim()}`,
+      },
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
 }

@@ -1,10 +1,26 @@
 
-from fastapi import FastAPI
+import os
+import hmac
+
+from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import UploadFile, File, HTTPException
+
+from dotenv import load_dotenv
+
+from fastapi import (
+    FastAPI,
+    UploadFile,
+    File,
+    HTTPException,
+    Request,
+)
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
 from backend.services.image_forensics import analyse_image
 from backend.services.face_intelligence import analyse_faces
-from fastapi.middleware.cors import CORSMiddleware
+
 from backend.api.osint import router as osint_router
 from backend.api.image_index import router as image_index_router
 
@@ -13,6 +29,7 @@ from backend.services.evidence_manager import (
     verify_evidence,
     list_stored_evidence,
 )
+
 from backend.services.case_manager import (
     create_case,
     list_cases,
@@ -22,9 +39,24 @@ from backend.services.case_manager import (
     list_case_activity,
     save_face_analysis_report,
     list_face_analysis_reports,
-    get_face_analysis_report
+    get_face_analysis_report,
 )
 
+
+# ============================================================
+# ENVIRONMENT CONFIGURATION
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+DEMO_TOKEN = os.getenv("AEGIS_DEMO_TOKEN", "").strip()
+
+
+# ============================================================
+# APPLICATION
+# ============================================================
 
 app = FastAPI(
     title="AEGIS INTEL",
@@ -32,17 +64,94 @@ app = FastAPI(
         "AI-Powered Law Enforcement Intelligence "
         "and Digital Investigation Platform"
     ),
-    version="0.1.0"
+    version="0.1.0",
 )
-app.include_router(osint_router)
-app.include_router(image_index_router)
+
+
+# ============================================================
+# AUTHENTICATION MIDDLEWARE
+# ============================================================
+
+@app.middleware("http")
+async def demo_authentication(request: Request, call_next):
+
+    path = request.url.path
+
+    public_paths = {
+        "/",
+        "/health",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    }
+
+    if path in public_paths:
+        return await call_next(request)
+
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    if path.startswith("/api/v1/"):
+
+        if not DEMO_TOKEN:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "API authentication is not configured."
+                },
+            )
+
+        authorization = request.headers.get(
+            "Authorization",
+            ""
+        )
+
+        expected_authorization = f"Bearer {DEMO_TOKEN}"
+
+        if not hmac.compare_digest(
+            authorization,
+            expected_authorization
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "detail": "Authentication required or invalid token."
+                },
+            )
+
+    return await call_next(request)
+
+
+# ============================================================
+# CORS CONFIGURATION
+# ============================================================
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://anviksha-intel.vercel.app",
+    ],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+    ],
 )
+
+
+# ============================================================
+# API ROUTERS
+# ============================================================
+
+app.include_router(osint_router)
+app.include_router(image_index_router)
+
+
+# ============================================================
+# ROOT AND HEALTH
+# ============================================================
 
 @app.get("/")
 async def root():
@@ -63,6 +172,10 @@ async def health():
     }
 
 
+# ============================================================
+# SYSTEM INFORMATION
+# ============================================================
+
 @app.get("/api/v1/system/info")
 async def system_info():
     return {
@@ -79,6 +192,11 @@ async def system_info():
         ],
         "environment": "development"
     }
+
+
+# ============================================================
+# IMAGE FORENSICS
+# ============================================================
 
 @app.post("/api/v1/image/analyse")
 async def analyse_uploaded_image(
@@ -104,12 +222,16 @@ async def analyse_uploaded_image(
     finally:
         await file.close()
 
+
+# ============================================================
+# FACE INTELLIGENCE
+# ============================================================
+
 @app.post("/api/v1/face-intelligence/analyse")
 async def analyse_face_intelligence(
     file: UploadFile = File(...)
 ):
     try:
-        # Read at most 10 MB plus one byte.
         file_bytes = await file.read(
             10 * 1024 * 1024 + 1
         )
@@ -150,12 +272,15 @@ async def analyse_face_intelligence(
         await file.close()
 
 
+# ============================================================
+# EVIDENCE MANAGEMENT
+# ============================================================
+
 @app.post("/api/v1/evidence/ingest")
 async def ingest_evidence(file: UploadFile = File(...)):
     try:
         file_bytes = await file.read()
 
-        # Reuse the existing image analysis validation
         analyse_image(file_bytes)
 
         manifest = store_evidence(
@@ -171,9 +296,14 @@ async def ingest_evidence(file: UploadFile = File(...)):
         }
 
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
     finally:
         await file.close()
+
 
 @app.get("/api/v1/evidence")
 async def get_all_stored_evidence():
@@ -187,7 +317,6 @@ async def get_all_stored_evidence():
 
 @app.get("/api/v1/evidence/{evidence_id}/manifest")
 async def get_evidence_manifest(evidence_id: str):
-    from pathlib import Path
     import json
 
     from backend.core.storage import MANIFESTS_DIR
@@ -195,42 +324,78 @@ async def get_evidence_manifest(evidence_id: str):
     manifest_path = MANIFESTS_DIR / f"{evidence_id}.json"
 
     if not manifest_path.is_file():
-        raise HTTPException(status_code=404, detail="Evidence not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Evidence not found."
+        )
 
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        )
+
         if manifest.get("evidence_id") != evidence_id:
-            raise HTTPException(status_code=404, detail="Evidence not found.")
+            raise HTTPException(
+                status_code=404,
+                detail="Evidence not found."
+            )
+
         return manifest
+
     except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Evidence manifest is invalid.")
+        raise HTTPException(
+            status_code=500,
+            detail="Evidence manifest is invalid."
+        )
 
 
 @app.get("/api/v1/evidence/{evidence_id}/verify")
 async def verify_stored_evidence(evidence_id: str):
     try:
         return verify_evidence(evidence_id)
+
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Evidence not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Evidence not found."
+        )
+
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
     except Exception:
-        raise HTTPException(status_code=500, detail="Evidence verification failed.")
+        raise HTTPException(
+            status_code=500,
+            detail="Evidence verification failed."
+        )
 
 
-from pydantic import BaseModel, Field
-
+# ============================================================
+# REQUEST MODELS
+# ============================================================
 
 class CaseCreateRequest(BaseModel):
     title: str = Field(min_length=3, max_length=200)
     description: str = Field(default="", max_length=5000)
     priority: str = "MEDIUM"
+
+
 class FaceAnalysisReportRequest(BaseModel):
     evidence_id: str = Field(min_length=1)
     analysis: dict
 
+
+# ============================================================
+# CASE MANAGEMENT
+# ============================================================
+
 @app.post("/api/v1/cases")
-async def create_investigation_case(request: CaseCreateRequest):
+async def create_investigation_case(
+    request: CaseCreateRequest
+):
     try:
         return {
             "status": "case_created",
@@ -240,8 +405,12 @@ async def create_investigation_case(request: CaseCreateRequest):
                 priority=request.priority.upper()
             )
         }
+
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
 
 
 @app.get("/api/v1/cases")
@@ -257,15 +426,24 @@ async def get_investigation_case(case_id: str):
     case = get_case(case_id)
 
     if not case:
-        raise HTTPException(status_code=404, detail="Case not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Case not found."
+        )
 
     return case
 
 
 @app.post("/api/v1/cases/{case_id}/evidence")
-async def attach_evidence(case_id: str, evidence_id: str):
+async def attach_evidence(
+    case_id: str,
+    evidence_id: str
+):
     try:
-        result = link_evidence_to_case(case_id, evidence_id)
+        result = link_evidence_to_case(
+            case_id,
+            evidence_id
+        )
 
         return {
             "status": "success",
@@ -274,10 +452,16 @@ async def attach_evidence(case_id: str, evidence_id: str):
         }
 
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
 
     except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error))
+        raise HTTPException(
+            status_code=409,
+            detail=str(error)
+        )
 
 
 @app.get("/api/v1/cases/{case_id}/evidence")
@@ -292,7 +476,10 @@ async def get_case_evidence(case_id: str):
         }
 
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
 
 
 @app.get("/api/v1/cases/{case_id}/activity")
@@ -306,8 +493,13 @@ async def get_case_activity(case_id: str):
             "activities": activities
         }
 
+
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=str(error))
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
 
 # ============================================================
 # FACIAL ANALYSIS REPORT API
